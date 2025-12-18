@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { UserAccount, ActivityLog } from '../types';
+import { UserAccount, ActivityLog, AIAnalysisResult } from '../types';
+import { analyzeAccount, getPlatformTrends } from '../services/geminiService';
 import { 
   Search, ChevronLeft, ChevronRight, XCircle, Plus, Lock, Globe, Phone, Mail, User,
   ArrowUpDown, Download, Star, MapPin, Tag, Archive, RefreshCw, Briefcase, Calendar, 
-  Users, Clock, MoreVertical, Edit2, Trash2, Copy, Check, Filter
+  Users, Clock, MoreVertical, Edit2, Trash2, Copy, Check, Sparkles, Zap, ExternalLink, Eye, EyeOff
 } from 'lucide-react';
 
 interface AccountTableProps {
@@ -27,6 +28,12 @@ const AccountTable: React.FC<AccountTableProps> = ({
   const [sortConfig, setSortConfig] = useState<SortConfig>(null);
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [showPass, setShowPass] = useState(false);
+
+  // AI States
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysis, setAnalysis] = useState<AIAnalysisResult | null>(null);
+  const [platformTrends, setPlatformTrends] = useState<{text: string, sources: any[]} | null>(null);
 
   // Modals
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -78,6 +85,17 @@ const AccountTable: React.FC<AccountTableProps> = ({
     navigator.clipboard.writeText(text);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const runAudit = async () => {
+    if (!selectedAccount) return;
+    setIsAnalyzing(true);
+    const result = await analyzeAccount(selectedAccount);
+    setAnalysis(result);
+    
+    const trends = await getPlatformTrends(selectedAccount.platform);
+    setPlatformTrends(trends);
+    setIsAnalyzing(false);
   };
 
   const toggleSelectAll = () => {
@@ -186,7 +204,7 @@ const AccountTable: React.FC<AccountTableProps> = ({
           <div className="flex gap-2">
             <button onClick={openAddModal} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition-all shadow-lg shadow-indigo-600/20"><Plus className="w-4 h-4" /> Add Entry</button>
             <button onClick={handleExport} className="p-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-200 transition-all"><Download className="w-5 h-5" /></button>
-            <button onClick={() => setShowFavoritesOnly(!showFavoritesOnly)} className={`p-2 rounded-lg border transition-all ${showFavoritesOnly ? 'bg-yellow-500/20 border-yellow-500/50 text-yellow-400' : 'bg-slate-900 border-slate-700 text-slate-500'}`}><Star className={`w-5 h-5 ${showFavoritesOnly ? 'fill-yellow-500' : ''}`} /></button>
+            <button onClick={() => setShowFavoritesOnly(!showFavoritesOnly)} className={`p-2 rounded-lg border transition-all ${showFavoritesOnly ? 'bg-yellow-500/20 border-yellow-500/50 text-yellow-400' : 'bg-slate-900 border-slate-700 text-slate-500'}`}><Star className={`w-5 h-5 ${showFavoritesOnly ? 'fill-yellow-400' : ''}`} /></button>
           </div>
         </div>
         <div className="flex bg-slate-900 p-1 rounded-lg border border-slate-700">
@@ -268,7 +286,7 @@ const AccountTable: React.FC<AccountTableProps> = ({
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => setSelectedAccount(user)} className="p-2 hover:bg-slate-700 rounded-lg text-indigo-400" title="Full Details"><MoreVertical className="w-4 h-4" /></button>
+                      <button onClick={() => { setSelectedAccount(user); setAnalysis(null); setPlatformTrends(null); }} className="p-2 hover:bg-slate-700 rounded-lg text-indigo-400" title="Full Details"><MoreVertical className="w-4 h-4" /></button>
                       <button onClick={() => openEditModal(user)} className="p-2 hover:bg-slate-700 rounded-lg text-slate-300" title="Edit Entry"><Edit2 className="w-4 h-4" /></button>
                       <button onClick={() => handleDelete(user.id)} className="p-2 hover:bg-slate-700 rounded-lg text-red-400" title="Delete Entry"><Trash2 className="w-4 h-4" /></button>
                     </div>
@@ -293,80 +311,143 @@ const AccountTable: React.FC<AccountTableProps> = ({
 
       {/* Slide-over Details Panel */}
       {selectedAccount && (
-        <div className="fixed inset-y-0 right-0 w-full sm:w-[450px] bg-slate-900 border-l border-slate-700 shadow-3xl z-50 flex flex-col animate-in slide-in-from-right duration-300">
+        <div className="fixed inset-y-0 right-0 w-full sm:w-[500px] bg-slate-900 border-l border-slate-700 shadow-3xl z-50 flex flex-col animate-in slide-in-from-right duration-300">
           <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-800/50">
-            <h3 className="font-black text-xs uppercase tracking-widest text-indigo-400">Vault Access: Details</h3>
+            <div className="flex items-center gap-2">
+                <Zap className="w-4 h-4 text-indigo-400" />
+                <h3 className="font-black text-xs uppercase tracking-widest text-white">Vault Intel Panel</h3>
+            </div>
             <button onClick={() => setSelectedAccount(null)} className="text-slate-500 hover:text-white"><XCircle className="w-6 h-6" /></button>
           </div>
           <div className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
-            <div className="flex items-center gap-5">
-               <img src={selectedAccount.avatar} className="w-20 h-20 rounded-2xl ring-4 ring-slate-800 shadow-2xl" />
-               <div>
+            {/* Account Header */}
+            <div className="flex items-center gap-6 p-4 bg-slate-950/40 rounded-2xl border border-slate-800">
+               <img src={selectedAccount.avatar} className="w-24 h-24 rounded-2xl ring-4 ring-indigo-500/20 shadow-2xl" />
+               <div className="flex-1">
                  <h2 className="text-2xl font-black text-white">{selectedAccount.username}</h2>
-                 <p className="text-indigo-400 text-xs font-bold uppercase tracking-widest">{selectedAccount.platform} Network</p>
-                 <div className="flex items-center gap-2 mt-2">
-                   <span className="px-2 py-0.5 rounded bg-slate-800 text-[10px] font-bold text-slate-400 border border-slate-700">{selectedAccount.category}</span>
-                   <button onClick={() => onUpdateAccount(selectedAccount.id, { isFavorite: !selectedAccount.isFavorite })} className={selectedAccount.isFavorite ? 'text-yellow-500' : 'text-slate-600'}><Star className={`w-4 h-4 ${selectedAccount.isFavorite ? 'fill-yellow-500' : ''}`} /></button>
+                 <p className="text-indigo-400 text-xs font-bold uppercase tracking-widest flex items-center gap-2">
+                    {selectedAccount.platform} {getCountryFlag(selectedAccount.country)}
+                 </p>
+                 <div className="flex items-center gap-2 mt-3">
+                   <span className="px-2 py-1 rounded bg-slate-800 text-[10px] font-bold text-slate-400 border border-slate-700">{selectedAccount.category}</span>
+                   <button onClick={() => onUpdateAccount(selectedAccount.id, { isFavorite: !selectedAccount.isFavorite })} className={selectedAccount.isFavorite ? 'text-yellow-500' : 'text-slate-600'}><Star className={`w-5 h-5 ${selectedAccount.isFavorite ? 'fill-yellow-500' : ''}`} /></button>
                  </div>
                </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-                 <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50">
-                    <p className="text-[10px] font-black text-slate-500 uppercase mb-1">Custodian</p>
-                    <p className="text-sm font-bold text-white">{selectedAccount.accountManager || 'Unassigned'}</p>
+            {/* AI Audit Section */}
+            <div className="space-y-4">
+                 <div className="flex justify-between items-center">
+                    <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2"><Sparkles className="w-3 h-3 text-indigo-400" /> AI Diagnostic Audit</h4>
+                    <button 
+                        onClick={runAudit}
+                        disabled={isAnalyzing}
+                        className="text-[10px] font-black uppercase text-indigo-400 hover:text-indigo-300 disabled:opacity-50 transition-colors flex items-center gap-1"
+                    >
+                        {isAnalyzing ? <><RefreshCw className="w-3 h-3 animate-spin" /> Analyzing</> : <><Zap className="w-3 h-3" /> Run Deep Audit</>}
+                    </button>
                  </div>
-                 <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50">
-                    <p className="text-[10px] font-black text-slate-500 uppercase mb-1">Last Posted</p>
-                    <p className="text-sm font-bold text-white">{selectedAccount.lastPostedDate || '---'}</p>
-                 </div>
+                 
+                 {analysis ? (
+                     <div className="bg-indigo-600/5 border border-indigo-500/20 p-6 rounded-2xl space-y-4 animate-in fade-in zoom-in-95">
+                         <div className="flex justify-between items-center">
+                            <span className="text-xs font-bold text-slate-400">Account Sentiment</span>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${analysis.sentiment === 'Positive' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>{analysis.sentiment}</span>
+                         </div>
+                         <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <p className="text-[9px] font-bold text-emerald-500 uppercase mb-2">Strengths</p>
+                                <ul className="space-y-1">
+                                    {analysis.strengths.map((s, i) => <li key={i} className="text-xs text-slate-300 flex items-start gap-1"><span>•</span> {s}</li>)}
+                                </ul>
+                            </div>
+                            <div>
+                                <p className="text-[9px] font-bold text-red-500 uppercase mb-2">Risks</p>
+                                <ul className="space-y-1">
+                                    {analysis.weaknesses.map((w, i) => <li key={i} className="text-xs text-slate-300 flex items-start gap-1"><span>•</span> {w}</li>)}
+                                </ul>
+                            </div>
+                         </div>
+                         <div className="pt-2 border-t border-indigo-500/20">
+                            <p className="text-[9px] font-bold text-indigo-400 uppercase mb-1">Growth Directives</p>
+                            <p className="text-xs text-slate-200 italic leading-relaxed">"{analysis.growthStrategy}"</p>
+                         </div>
+                     </div>
+                 ) : isAnalyzing ? (
+                    <div className="bg-slate-900/50 border border-slate-800 p-8 rounded-2xl flex flex-col items-center justify-center gap-3">
+                        <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+                        <p className="text-xs font-bold text-slate-500 uppercase tracking-widest animate-pulse">Running Account Diagnostics...</p>
+                    </div>
+                 ) : null}
+
+                 {platformTrends && (
+                     <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl space-y-3">
+                         <div className="flex items-center gap-2 text-indigo-400">
+                            <Globe className="w-3 h-3" />
+                            <span className="text-[9px] font-black uppercase tracking-widest">Network Intel & Trends</span>
+                         </div>
+                         <p className="text-xs text-slate-400 leading-relaxed">{platformTrends.text}</p>
+                         <div className="flex flex-wrap gap-2 pt-2">
+                            {platformTrends.sources.map((src: any, i: number) => (
+                                <a key={i} href={src.maps?.uri || src.web?.uri} target="_blank" className="text-[9px] text-indigo-500 hover:underline flex items-center gap-1">
+                                    <ExternalLink className="w-2 h-2" /> Source {i+1}
+                                </a>
+                            ))}
+                         </div>
+                     </div>
+                 )}
             </div>
 
+            {/* Secure Access Section */}
             <div className="space-y-4">
-                <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2"><Lock className="w-3 h-3" /> Secure Access Layer</h4>
+                <div className="flex justify-between items-center">
+                    <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2"><Lock className="w-3 h-3" /> Cryptographic Access Layer</h4>
+                    <button onClick={() => setShowPass(!showPass)} className="text-[10px] text-slate-500 hover:text-white flex items-center gap-1">
+                        {showPass ? <><EyeOff className="w-3 h-3" /> Hide</> : <><Eye className="w-3 h-3" /> Reveal</>}
+                    </button>
+                </div>
                 <div className="bg-slate-950/50 rounded-2xl border border-slate-800 overflow-hidden divide-y divide-slate-800">
                     <div className="p-4 flex justify-between items-center group">
-                        <div>
-                          <p className="text-[9px] font-bold text-slate-600 uppercase">System Email</p>
-                          <p className="text-xs font-mono text-slate-300">{selectedAccount.email || 'None'}</p>
+                        <div className="flex-1">
+                          <p className="text-[9px] font-bold text-slate-600 uppercase mb-1">Recovery Email</p>
+                          <p className="text-xs font-mono text-slate-300">{selectedAccount.email || 'NO_EMAIL'}</p>
                         </div>
-                        {selectedAccount.email && (
-                          <button onClick={() => handleCopy(selectedAccount.email!, 'email')} className="p-2 opacity-0 group-hover:opacity-100 text-slate-500 hover:text-white transition-all">
+                        <button onClick={() => handleCopy(selectedAccount.email!, 'email')} className="p-2 opacity-0 group-hover:opacity-100 text-slate-500 hover:text-white">
                             {copiedId === 'email' ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
-                          </button>
-                        )}
+                        </button>
                     </div>
                     <div className="p-4 flex justify-between items-center group">
-                        <div>
-                          <p className="text-[9px] font-bold text-slate-600 uppercase">System Password</p>
-                          <p className="text-xs font-mono text-slate-300 tracking-tighter">••••••••••••</p>
+                        <div className="flex-1">
+                          <p className="text-[9px] font-bold text-slate-600 uppercase mb-1">Master Password</p>
+                          <p className={`text-xs font-mono text-slate-300 tracking-tighter ${!showPass ? 'blur-[5px]' : ''}`}>
+                            {selectedAccount.password || '••••••••'}
+                          </p>
                         </div>
-                        {selectedAccount.password && (
-                          <button onClick={() => handleCopy(selectedAccount.password!, 'pass')} className="p-2 opacity-0 group-hover:opacity-100 text-slate-500 hover:text-white transition-all">
+                        <button onClick={() => handleCopy(selectedAccount.password!, 'pass')} className="p-2 opacity-0 group-hover:opacity-100 text-slate-500 hover:text-white">
                             {copiedId === 'pass' ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
-                          </button>
-                        )}
+                        </button>
                     </div>
                     <div className="p-4 flex justify-between items-center group">
-                        <div>
-                          <p className="text-[9px] font-bold text-slate-600 uppercase">2FA OTP Seed</p>
-                          <p className="text-xs font-mono text-slate-300">{selectedAccount.twoFactorSecret || 'Disabled'}</p>
+                        <div className="flex-1">
+                          <p className="text-[9px] font-bold text-slate-600 uppercase mb-1">2FA / OTP Seed</p>
+                          <p className={`text-xs font-mono text-slate-300 ${!showPass ? 'blur-[5px]' : ''}`}>
+                            {selectedAccount.twoFactorSecret || 'NONE_CONFIGURED'}
+                          </p>
                         </div>
-                        {selectedAccount.twoFactorSecret && (
-                          <button onClick={() => handleCopy(selectedAccount.twoFactorSecret!, 'otp')} className="p-2 opacity-0 group-hover:opacity-100 text-slate-500 hover:text-white transition-all">
+                        <button onClick={() => handleCopy(selectedAccount.twoFactorSecret!, 'otp')} className="p-2 opacity-0 group-hover:opacity-100 text-slate-500 hover:text-white">
                             {copiedId === 'otp' ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
-                          </button>
-                        )}
+                        </button>
                     </div>
                 </div>
             </div>
 
+            {/* Audit Log */}
             <div className="space-y-4">
-                 <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2"><Clock className="w-3 h-3" /> Audit Log</h4>
+                 <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2"><Clock className="w-3 h-3" /> Vault Audit Logs</h4>
                  <div className="space-y-4 border-l-2 border-slate-800 ml-2 pl-6 py-2">
                      {(selectedAccount.history || []).slice().reverse().map((log, i) => (
-                         <div key={i} className="relative">
-                             <div className="absolute -left-[31px] top-1 w-2 h-2 rounded-full bg-slate-700 ring-4 ring-slate-900"></div>
+                         <div key={i} className="relative group">
+                             <div className="absolute -left-[31px] top-1 w-2 h-2 rounded-full bg-slate-700 ring-4 ring-slate-900 group-hover:bg-indigo-500 transition-colors"></div>
                              <p className="text-xs font-bold text-slate-200">{log.action}</p>
                              <p className="text-[10px] text-slate-500 font-mono">{new Date(log.date).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</p>
                              {log.details && <p className="text-[10px] text-slate-400 mt-1 italic leading-relaxed">{log.details}</p>}
@@ -375,8 +456,9 @@ const AccountTable: React.FC<AccountTableProps> = ({
                  </div>
             </div>
           </div>
+          
           <div className="p-6 border-t border-slate-800 bg-slate-800/30 flex gap-4">
-            <button onClick={() => openEditModal(selectedAccount)} className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl transition-all shadow-xl shadow-indigo-600/20 flex items-center justify-center gap-2"><Edit2 className="w-4 h-4" /> Edit Entry</button>
+            <button onClick={() => openEditModal(selectedAccount)} className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl transition-all shadow-xl shadow-indigo-600/20 flex items-center justify-center gap-2"><Edit2 className="w-4 h-4" /> Edit Record</button>
             <button onClick={() => handleDelete(selectedAccount.id)} className="p-3 bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white rounded-xl transition-all"><Trash2 className="w-5 h-5" /></button>
           </div>
         </div>
@@ -385,18 +467,18 @@ const AccountTable: React.FC<AccountTableProps> = ({
       {/* Entry Modal (Add/Edit) */}
       {isModalOpen && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-2xl shadow-4xl flex flex-col max-h-[90vh] overflow-hidden scale-in-center">
+            <div className="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-2xl shadow-4xl flex flex-col max-h-[90vh] overflow-hidden">
                 <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-800/50">
-                    <h3 className="text-lg font-black text-white uppercase tracking-widest">{modalMode === 'add' ? 'Secure Entry: Initialize' : 'Secure Entry: Modifier'}</h3>
+                    <h3 className="text-lg font-black text-white uppercase tracking-widest">{modalMode === 'add' ? 'Secure Vault: Initialization' : 'Secure Vault: Update'}</h3>
                     <button onClick={() => setIsModalOpen(false)} className="text-slate-500 hover:text-white transition-colors"><XCircle className="w-7 h-7" /></button>
                 </div>
                 <div className="overflow-y-auto p-8 flex-1 custom-scrollbar space-y-8">
                     <form id="entryForm" onSubmit={handleSubmit} className="space-y-10">
                         <section className="space-y-6">
-                            <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-widest border-b border-slate-800 pb-2">Core Identity</h4>
+                            <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-widest border-b border-slate-800 pb-2">Identification Layer</h4>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div>
-                                    <label className="block text-[10px] font-black text-slate-500 uppercase mb-2">Primary Username</label>
+                                    <label className="block text-[10px] font-black text-slate-500 uppercase mb-2">Username / Handle</label>
                                     <input type="text" required value={formState.username} onChange={(e) => setFormState({...formState, username: e.target.value})} placeholder="@handle" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-bold" />
                                 </div>
                                 <div>
@@ -408,67 +490,67 @@ const AccountTable: React.FC<AccountTableProps> = ({
                             </div>
                             <div className="grid grid-cols-2 gap-6">
                                 <div>
-                                    <label className="block text-[10px] font-black text-slate-500 uppercase mb-2">Reach (Followers)</label>
+                                    <label className="block text-[10px] font-black text-slate-500 uppercase mb-2">Verified Reach</label>
                                     <input type="number" required min="0" value={formState.followers} onChange={(e) => setFormState({...formState, followers: parseInt(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-mono" />
                                 </div>
                                 <div>
-                                    <label className="block text-[10px] font-black text-slate-500 uppercase mb-2">Engagement Rate (%)</label>
+                                    <label className="block text-[10px] font-black text-slate-500 uppercase mb-2">Engagement Velocity (%)</label>
                                     <input type="number" required min="0" max="100" step="0.1" value={formState.engagementRate} onChange={(e) => setFormState({...formState, engagementRate: parseFloat(e.target.value) || 0})} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-mono" />
                                 </div>
                             </div>
                         </section>
 
                         <section className="space-y-6">
-                            <h4 className="text-[10px] font-black text-emerald-400 uppercase tracking-widest border-b border-slate-800 pb-2">Vault Credentials</h4>
+                            <h4 className="text-[10px] font-black text-emerald-400 uppercase tracking-widest border-b border-slate-800 pb-2">Security Credentials</h4>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div>
-                                    <label className="block text-[10px] font-black text-slate-500 uppercase mb-2">Recovery Email</label>
+                                    <label className="block text-[10px] font-black text-slate-500 uppercase mb-2">Access Email</label>
                                     <input type="email" value={formState.email} onChange={(e) => setFormState({...formState, email: e.target.value})} placeholder="vault@system.com" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-mono" />
                                 </div>
                                 <div>
-                                    <label className="block text-[10px] font-black text-slate-500 uppercase mb-2">Master Password</label>
+                                    <label className="block text-[10px] font-black text-slate-500 uppercase mb-2">Access Key (Password)</label>
                                     <input type="text" value={formState.password} onChange={(e) => setFormState({...formState, password: e.target.value})} placeholder="SECURE_PHRASE" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-mono" />
                                 </div>
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div>
-                                    <label className="block text-[10px] font-black text-slate-500 uppercase mb-2">Custodian (Manager)</label>
-                                    <input type="text" value={formState.accountManager} onChange={(e) => setFormState({...formState, accountManager: e.target.value})} placeholder="Operator Name" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all" />
+                                    <label className="block text-[10px] font-black text-slate-500 uppercase mb-2">Assigned Custodian</label>
+                                    <input type="text" value={formState.accountManager} onChange={(e) => setFormState({...formState, accountManager: e.target.value})} placeholder="Operator Name" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-bold" />
                                 </div>
                                 <div>
-                                    <label className="block text-[10px] font-black text-slate-500 uppercase mb-2">2FA Secret Key</label>
+                                    <label className="block text-[10px] font-black text-slate-500 uppercase mb-2">MFA Token Seed</label>
                                     <input type="text" value={formState.twoFactorSecret} onChange={(e) => setFormState({...formState, twoFactorSecret: e.target.value})} placeholder="JBSW..." className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-mono" />
                                 </div>
                             </div>
                         </section>
 
                         <section className="space-y-6">
-                            <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest border-b border-slate-800 pb-2">Environmental Data</h4>
+                            <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest border-b border-slate-800 pb-2">Environmental Metadata</h4>
                             <div className="grid grid-cols-2 gap-6">
                                 <div>
-                                    <label className="block text-[10px] font-black text-slate-500 uppercase mb-2">Geo-Location (Country)</label>
+                                    <label className="block text-[10px] font-black text-slate-500 uppercase mb-2">Regional Sector</label>
                                     <select value={formState.country} onChange={(e) => setFormState({...formState, country: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-bold">
-                                        <option value="">N/A</option><option value="USA">USA</option><option value="UK">UK</option><option value="Canada">Canada</option><option value="India">India</option>
+                                        <option value="">N/A</option><option value="USA">USA</option><option value="UK">UK</option><option value="Canada">Canada</option><option value="India">India</option><option value="Brazil">Brazil</option><option value="Japan">Japan</option>
                                     </select>
                                 </div>
                                 <div>
                                     <label className="block text-[10px] font-black text-slate-500 uppercase mb-2">Operational Status</label>
                                     <select value={formState.status} onChange={(e) => setFormState({...formState, status: e.target.value as any})} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-bold">
-                                        <option value="Active">Active</option><option value="Suspended">Suspended</option><option value="Verified">Verified</option>
+                                        <option value="Active">Active</option><option value="Suspended">Suspended</option><option value="Verified">Verified</option><option value="Shadowbanned">Shadowbanned</option>
                                     </select>
                                 </div>
                             </div>
                             <div>
-                                <label className="block text-[10px] font-black text-slate-500 uppercase mb-2">Internal Notes</label>
-                                <textarea rows={3} value={formState.notes} onChange={(e) => setFormState({...formState, notes: e.target.value})} placeholder="Strategic directives..." className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-indigo-500 outline-none resize-none transition-all font-medium" />
+                                <label className="block text-[10px] font-black text-slate-500 uppercase mb-2">Internal Directives (Notes)</label>
+                                <textarea rows={4} value={formState.notes} onChange={(e) => setFormState({...formState, notes: e.target.value})} placeholder="Operational directives and strategy..." className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-indigo-500 outline-none resize-none transition-all font-medium" />
                             </div>
                         </section>
                     </form>
                 </div>
                 <div className="p-8 border-t border-slate-800 bg-slate-800/30 flex justify-end gap-4">
-                    <button onClick={() => setIsModalOpen(false)} className="px-6 py-3 rounded-xl text-slate-400 hover:text-white transition-all font-bold uppercase tracking-widest text-xs">Abord</button>
+                    <button onClick={() => setIsModalOpen(false)} className="px-6 py-3 rounded-xl text-slate-400 hover:text-white transition-all font-bold uppercase tracking-widest text-xs">Cancel</button>
                     <button type="submit" form="entryForm" disabled={isSubmitting} className="px-10 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-black uppercase tracking-widest text-xs transition-all disabled:opacity-50 shadow-2xl shadow-indigo-600/30">
-                        {isSubmitting ? 'Syncing...' : modalMode === 'add' ? 'Initialize Record' : 'Commit Changes'}
+                        {isSubmitting ? 'Syncing...' : modalMode === 'add' ? 'Initialize Entry' : 'Commit Entry Changes'}
                     </button>
                 </div>
             </div>
